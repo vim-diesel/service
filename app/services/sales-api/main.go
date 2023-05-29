@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/ardanlabs/conf/v3"
-	"github.com/vim-diesel/newservice/business/web/v1/debug"
-	"github.com/vim-diesel/newservice/foundation/logger"
+	"github.com/vim-diesel/service/business/web/v1/debug"
+	"github.com/vim-diesel/service/foundation/logger"
 	"go.uber.org/zap"
 )
 

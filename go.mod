@@ -1,4 +1,4 @@
-module github.com/vim-diesel/newservice
+module github.com/vim-diesel/service
 
 go 1.20
 

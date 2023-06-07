@@ -27,6 +27,14 @@ dev-docker:
 
 
 # ==============================================================================
+
+run:
+	go run app/services/sales-api/main.go | go run app/tooling/logfmt/main.go
+
+run-help:
+	go run app/services/sales-api/main.go --help | go run app/tooling/logfmt/main.go
+
+# ==============================================================================
 # Building containers
 
 all: service
@@ -73,6 +81,8 @@ dev-update: all dev-load dev-restart
 dev-update-apply: all dev-load dev-apply
 
 # ------------------------------------------------------------------------------
+metrics-local:
+	expvarmon -ports=":4000" -vars="build,requests,goroutines,errors,panics,mem:memstats.Alloc"
 
 dev-logs:
 	kubectl logs --namespace=$(NAMESPACE) -l app=$(APP) --all-containers=true -f --tail=100 --max-log-requests=6 | go run app/tooling/logfmt/main.go -service=$(SERVICE_NAME)
@@ -142,8 +152,8 @@ users:
 load-local:
 	hey -m GET -c 100 -n 10000 -H "Authorization: Bearer ${TOKEN}" "http://localhost:3000/v1/users?page=1&rows=2"
 
-load:
-	hey -m GET -c 100 -n 10000 -H "Authorization: Bearer ${TOKEN}" "http://$(SERVICE_NAME).$(NAMESPACE).svc.cluster.local:3000/v1/users?page=1&rows=2"
+load-vars:
+	hey -m GET -c 100 -n 10000  "http://localhost:4000/debug/vars"
 
 # ==============================================================================
 # Modules support

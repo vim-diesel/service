@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"expvar"
 	"fmt"
@@ -12,34 +13,29 @@ import (
 	"time"
 
 	"github.com/ardanlabs/conf/v3"
+	"github.com/vim-diesel/service/app/services/sales-api/handlers"
 	"github.com/vim-diesel/service/business/web/v1/debug"
 	"github.com/vim-diesel/service/foundation/logger"
-	"go.uber.org/zap"
+	"golang.org/x/exp/slog"
 )
 
 var build = "develop"
 
 func main() {
-	log, err := logger.New("SALES-API")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer log.Sync()
+	log := logger.New(os.Stdout, "SALES-API")
 
 	if err := run(log); err != nil {
-		log.Errorw("startup", "ERROR", err)
-		log.Sync()
+		log.Info("startup", "ERROR", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *zap.SugaredLogger) error {
+func run(log *slog.Logger) error {
 
 	// -------------------------------------------------------------------------
 	// GOMAXPROCS
 
-	log.Infow("startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
+	log.Info("startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
 
 	// -------------------------------------------------------------------------
 	// Configuration
@@ -74,36 +70,81 @@ func run(log *zap.SugaredLogger) error {
 	// -------------------------------------------------------------------------
 	// App Starting
 
-	log.Infow("starting service", "version", build)
-	defer log.Infow("shutdown complete")
+	log.Info("starting service", "version", build)
+	defer log.Info("shutdown complete")
 
 	out, err := conf.String(&cfg)
 	if err != nil {
 		return fmt.Errorf("generating config for output: %w", err)
 	}
-	log.Infow("startup", "config", out)
+	log.Info("startup", "config", out)
 
 	expvar.NewString("build").Set(build)
 
 	// -------------------------------------------------------------------------
 	// Start Debug Service
 
-	log.Infow("startup", "status", "debug v1 router started", "host", cfg.Web.DebugHost)
+	log.Info("startup", "status", "debug v1 router started", "host", cfg.Web.DebugHost)
 
+	// http.ListenAndServe is blocking here, no ability to load shed.
 	go func() {
 		if err := http.ListenAndServe(cfg.Web.DebugHost, debug.Mux()); err != nil {
-			log.Errorw("shutdown", "status", "debug v1 router closed", "host", cfg.Web.DebugHost, "ERROR", err)
+			log.Error("shutdown", "status", "debug v1 router closed", "host", cfg.Web.DebugHost, "ERROR", err)
 		}
 	}()
 
 	// -------------------------------------------------------------------------
 	// Start API Service
 
-	log.Infow("startup", "status", "initializing V1 API support")
+	log.Info("startup", "status", "initializing V1 API support")
 
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-	<-shutdown
+
+	apiMux := handlers.APIMux(handlers.APIMuxConfig{
+		Build:    build,
+		Shutdown: shutdown,
+		Log:      log,
+	})
+
+	// constructing this allows us to do load shedding.
+	// timeouts critically important. Challenge is not knowing what they are supposed to be.
+
+	api := http.Server{
+		Addr:         cfg.Web.APIHost,
+		Handler:      apiMux,
+		ReadTimeout:  cfg.Web.ReadTimeout,
+		WriteTimeout: cfg.Web.WriteTimeout,
+		IdleTimeout:  cfg.Web.IdleTimeout,
+	}
+
+	serverErrors := make(chan error, 1)
+
+	go func() {
+		log.Info("startup", "status", "api router started", "host", api.Addr)
+
+		serverErrors <- api.ListenAndServe()
+	}()
+
+	// -------------------------------------------------------------------------
+	// Shutdown
+
+	select {
+	case err := <-serverErrors:
+		return fmt.Errorf("server error: %w", err)
+
+	case sig := <-shutdown:
+		log.Info("shutdown", "status", "shutdown started", "signal", sig)
+		defer log.Info("shutdown", "status", "shutdown complete", "signal", sig)
+
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Web.ShutdownTimeout)
+		defer cancel()
+
+		if err := api.Shutdown(ctx); err != nil {
+			api.Close()
+			return fmt.Errorf("could not stop server gracefully: %w", err)
+		}
+	}
 
 	return nil
 }

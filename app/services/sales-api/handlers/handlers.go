@@ -4,6 +4,7 @@ package handlers
 import (
 	"os"
 
+	"github.com/mehanizm/airtable"
 	"github.com/vim-diesel/service/foundation/web"
 	"golang.org/x/exp/slog"
 )
@@ -13,6 +14,7 @@ type APIMuxConfig struct {
 	Build    string
 	Shutdown chan os.Signal
 	Log      *slog.Logger
+	Airtable *airtable.Client
 }
 
 // APIMux constructs a http.Handler with all application routes defined.

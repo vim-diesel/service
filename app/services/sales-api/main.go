@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/ardanlabs/conf/v3"
+	"github.com/joho/godotenv"
+	//"github.com/mehanizm/airtable"
 	"github.com/vim-diesel/service/app/services/sales-api/handlers"
 	"github.com/vim-diesel/service/business/web/v1/debug"
 	"github.com/vim-diesel/service/foundation/logger"
@@ -22,6 +24,7 @@ import (
 var build = "develop"
 
 func main() {
+
 	log := logger.New(os.Stdout, "SALES-API")
 
 	if err := run(log); err != nil {
@@ -31,6 +34,11 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
+
+	err := godotenv.Load("/home/user/service/.env")
+	if err != nil {
+		log.Error("Error loading .env file")
+	}
 
 	// -------------------------------------------------------------------------
 	// GOMAXPROCS
@@ -80,6 +88,12 @@ func run(log *slog.Logger) error {
 	log.Info("startup", "config", out)
 
 	expvar.NewString("build").Set(build)
+
+	// -------------------------------------------------------------------------
+	// Connect to Airtable
+
+	//airtableAPIKey := os.Getenv("AIRTABLE_API_KEY")
+	//client := airtable.NewClient(airtableAPIKey)
 
 	// -------------------------------------------------------------------------
 	// Start Debug Service
